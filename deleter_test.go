@@ -1,6 +1,7 @@
 package ttlstore
 
 import (
+	"container/heap"
 	"fmt"
 	"testing"
 	"time"
@@ -96,6 +97,26 @@ func benchForUsers(n, a, x, y int, b *testing.B) {
 		d.Stop()
 	}
 	b.Logf("added %d", len(ids)*b.N)
+}
+
+func TestActionTimestmapHeap(t *testing.T) {
+	h := &ActionTimestmapHeap{}
+
+	for _, v := range []*actionTimestamp{
+		{"1", 10},
+		{"2", 20},
+		{"3", 15},
+		{"4", 25},
+		{"5", 5},
+		{"6", 17},
+		{"7", 14},
+	} {
+		heap.Push(h, v)
+	}
+	a := heap.Pop(h).(*actionTimestamp)
+	if uid := a.Key.(string); uid != "4" {
+		t.Errorf("want 5, got %s", uid)
+	}
 }
 
 // TODO think about better performance test
