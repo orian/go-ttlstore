@@ -47,6 +47,9 @@ func (t *TtlStore) Set(key, value interface{}) {
 	t.m.Lock()
 	t.store[key] = value
 	t.m.Unlock()
+	if t.j != nil {
+		t.j.Set(key, time.Now())
+	}
 }
 
 func (t *TtlStore) Delete(key interface{}) {

@@ -1,9 +1,10 @@
 package ttlstore
 
 import (
-	"container/heap"
 	"github.com/Sirupsen/logrus"
 	"github.com/orian/utils/ptime"
+
+	"container/heap"
 	"sync"
 	"time"
 )
@@ -55,11 +56,11 @@ type Deleter struct {
 
 var _ Janitor = &Deleter{}
 
-func NewDeleter(name string, del DeleteHook, maxAge, interval time.Duration, bufSize, keep int) *Deleter {
+func NewDeleter(name string, del DeleteHook, maxAge, runInterval time.Duration, bufSize, keep int) *Deleter {
 	return &Deleter{
 		make(chan *actionTimestamp, bufSize),
 		del,
-		interval,
+		runInterval,
 		name,
 		make(map[interface{}]int64),
 		maxAge,
