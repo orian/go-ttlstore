@@ -5,6 +5,7 @@ import (
 	"github.com/orian/utils/ptime"
 
 	"container/heap"
+	"io/ioutil"
 	"sync"
 	"time"
 )
@@ -52,11 +53,19 @@ type Deleter struct {
 	m        *sync.Mutex
 	end      chan bool
 	finished chan bool
+	logger   logrus.FieldLogger
 }
 
 var _ Janitor = &Deleter{}
 
-func NewDeleter(name string, del DeleteHook, maxAge, runInterval time.Duration, bufSize, keep int) *Deleter {
+func NewDeleter(name string, del DeleteHook, maxAge, runInterval time.Duration, bufSize, keep int,
+	logger logrus.FieldLogger) *Deleter {
+
+	if logger == nil {
+		logger = logrus.New()
+		logger.Out = ioutil.Discard
+	}
+
 	return &Deleter{
 		make(chan *actionTimestamp, bufSize),
 		del,
@@ -68,6 +77,7 @@ func NewDeleter(name string, del DeleteHook, maxAge, runInterval time.Duration, 
 		&sync.Mutex{},
 		make(chan bool, 1),
 		make(chan bool, 2),
+		logger,
 	}
 }
 
@@ -98,7 +108,7 @@ func (d *Deleter) DeleteTooOld() {
 			num++
 		}
 	}
-	logrus.Infof("[%s] deleted %d too old (%s) items, kept %d, took: %s",
+	d.logger.Infof("[%s] deleted %d too old (%s) items, kept %d, took: %s",
 		d.Name, num, d.maxAge, len(d.lastActionTimestamp), t.Duration())
 }
 
@@ -133,12 +143,12 @@ func (d *Deleter) deleteUntilBelowMaxUuid() {
 		delete(d.lastActionTimestamp, a.Key)
 		num++
 	}
-	logrus.Infof("[%s] deleted %d items because too many, kept: %d, took: %s",
+	d.logger.Infof("[%s] deleted %d items because too many, kept: %d, took: %s",
 		d.Name, num, len(d.lastActionTimestamp), t.Duration())
 }
 
 func (d *Deleter) Process() {
-	logrus.Infof("[%s] process started", d.Name)
+	d.logger.Infof("[%s] process started", d.Name)
 	for t := range d.c {
 		d.m.Lock()
 		if v := d.lastActionTimestamp[t.Key]; v < t.TimestmapNsec {
@@ -147,11 +157,11 @@ func (d *Deleter) Process() {
 		d.m.Unlock()
 	}
 	d.finished <- true
-	logrus.Infof("[%s] process finished", d.Name)
+	d.logger.Infof("[%s] process finished", d.Name)
 }
 
 func (d *Deleter) Deleting() {
-	logrus.Infof("[%s] deleting started", d.Name)
+	d.logger.Infof("[%s] deleting started", d.Name)
 	tmr := time.NewTicker(d.Interval)
 	for {
 		select {
@@ -165,7 +175,7 @@ func (d *Deleter) Deleting() {
 end:
 	tmr.Stop()
 	d.finished <- true
-	logrus.Infof("[%s] deleting finished", d.Name)
+	d.logger.Infof("[%s] deleting finished", d.Name)
 }
 
 func (d *Deleter) Start() {
