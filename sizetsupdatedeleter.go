@@ -62,8 +62,9 @@ func NewDeleter(name string, del DeleteHook, maxAge, runInterval time.Duration, 
 	logger logrus.FieldLogger) *Deleter {
 
 	if logger == nil {
-		logger = logrus.New()
-		logger.Out = ioutil.Discard
+		l := logrus.New()
+		l.Out = ioutil.Discard
+		logger = l
 	}
 
 	return &Deleter{
@@ -89,7 +90,7 @@ type DeleterProvider func(name string, hook DeleteHook) *Deleter
 
 func NewDeleterProvider(maxAge, interval time.Duration, bufSize, keep int) DeleterProvider {
 	return func(name string, del DeleteHook) *Deleter {
-		return NewDeleter(name, del, maxAge, interval, bufSize, keep)
+		return NewDeleter(name, del, maxAge, interval, bufSize, keep, nil)
 	}
 }
 
