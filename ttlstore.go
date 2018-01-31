@@ -5,21 +5,21 @@ import (
 	"time"
 )
 
-type Janitor interface {
-	Set(key interface{}, insert time.Time)
-}
+type SetCallback func(key interface{}, insert time.Time)
 
+// TtlStore is a map store with callback on set. It adds `Delete` method
+// used by Deleter.
 type TtlStore struct {
-	m     *sync.RWMutex
-	store map[interface{}]interface{}
-	j     Janitor
+	m           *sync.RWMutex
+	store       map[interface{}]interface{}
+	setCallback SetCallback
 }
 
-func New(j Janitor) *TtlStore {
+func New(c SetCallback) *TtlStore {
 	return &TtlStore{
 		&sync.RWMutex{},
 		make(map[interface{}]interface{}),
-		j,
+		c,
 	}
 }
 
@@ -47,13 +47,15 @@ func (t *TtlStore) Set(key, value interface{}) {
 	t.m.Lock()
 	t.store[key] = value
 	t.m.Unlock()
-	if t.j != nil {
-		t.j.Set(key, time.Now())
+	if t.setCallback != nil {
+		t.setCallback(key, time.Now())
 	}
 }
 
 func (t *TtlStore) Delete(key interface{}) {
 	t.m.Lock()
+	// NOTICE: we ignore the callback. It means, if a Delete is used
+	// by developer, the deleter must be notified in separate.
 	delete(t.store, key)
 	t.m.Unlock()
 }

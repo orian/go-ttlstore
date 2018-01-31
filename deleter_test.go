@@ -7,8 +7,10 @@ import (
 	"time"
 )
 
+var _ SetCallback = (&Deleter{}).Set
+
 func TestNewDeleter(t *testing.T) {
-	ex := []*actionTimestamp{
+	ex := []*itemTimestamp{
 		{"1", 10},
 		{"2", 20},
 		{"3", 15},
@@ -24,38 +26,38 @@ func TestNewDeleter(t *testing.T) {
 		deleted[key] = true
 		cnt++
 	}
-	d := NewDeleter("", dh, time.Minute, time.Hour, 3, 3)
+	d := NewDeleter("", dh, time.Minute, time.Hour, 3, 3, nil)
 	go d.Process()
 	for _, v := range ex {
 		d.c <- v
 	}
 	close(d.c)
 	<-d.finished
-	if l := len(d.lastActionTimestamp); l != 8 {
+	if l := len(d.lastItemTimeNsec); l != 8 {
 		t.Errorf("want: 8, got: %d", l)
 	}
-	d.deleteUntilBelowMaxUuid()
+	d.deleteUntilBelowKeepNum()
 
 	if cnt != 5 {
 		t.Errorf("deleted, want: 5, got: %d", cnt)
 		t.Errorf("%v", deleted)
 	}
-	if l := len(d.lastActionTimestamp); l != 3 {
+	if l := len(d.lastItemTimeNsec); l != 3 {
 		t.Errorf("want: 3, got: %d", l)
 	}
 
-	d.DeleteTooOld()
+	d.deleteTooOld()
 	if cnt != 7 {
 		t.Errorf("deleted, want: 7, got: %d", cnt)
 		t.Errorf("%v", deleted)
 	}
-	if l := len(d.lastActionTimestamp); l != 1 {
+	if l := len(d.lastItemTimeNsec); l != 1 {
 		t.Errorf("want: 1, got: %d", l)
 	}
 }
 
 func TestFullDeleter(t *testing.T) {
-	ex := []*actionTimestamp{
+	ex := []*itemTimestamp{
 		{"1", 10},
 		{"2", 20},
 		{"3", 15},
@@ -65,7 +67,7 @@ func TestFullDeleter(t *testing.T) {
 		{"7", 14},
 		{"8", time.Now().UnixNano()},
 	}
-	d := NewDeleter("", nil, time.Minute, time.Second, 3, 3)
+	d := NewDeleter("", nil, time.Minute, time.Second, 3, 3, nil)
 	go d.Start()
 	for _, v := range ex {
 		d.c <- v
@@ -75,7 +77,7 @@ func TestFullDeleter(t *testing.T) {
 	defer d.Stop()
 	d.m.Lock()
 	defer d.m.Unlock()
-	if l := len(d.lastActionTimestamp); l != 1 {
+	if l := len(d.lastItemTimeNsec); l != 1 {
 		t.Errorf("want: 1, got: %d", l)
 	}
 }
@@ -87,11 +89,11 @@ func benchForUsers(n, a, x, y int, b *testing.B) {
 	}
 
 	for i := 0; i < b.N; i++ {
-		d := NewDeleter("", nil, time.Minute, 5*time.Second, x, y)
+		d := NewDeleter("", nil, time.Minute, 5*time.Second, x, y, nil)
 		go d.Start()
 		for _, id := range ids {
 			for j := 0; j < a; j++ {
-				d.c <- &actionTimestamp{id, time.Now().UnixNano()}
+				d.c <- &itemTimestamp{id, time.Now().UnixNano()}
 			}
 		}
 		d.Stop()
@@ -100,9 +102,9 @@ func benchForUsers(n, a, x, y int, b *testing.B) {
 }
 
 func TestActionTimestmapHeap(t *testing.T) {
-	h := &ActionTimestmapHeap{}
+	h := &itemTimestmapHeap{}
 
-	for _, v := range []*actionTimestamp{
+	for _, v := range []*itemTimestamp{
 		{"1", 10},
 		{"2", 20},
 		{"3", 15},
@@ -113,7 +115,7 @@ func TestActionTimestmapHeap(t *testing.T) {
 	} {
 		heap.Push(h, v)
 	}
-	a := heap.Pop(h).(*actionTimestamp)
+	a := heap.Pop(h).(*itemTimestamp)
 	if uid := a.Key.(string); uid != "4" {
 		t.Errorf("want 5, got %s", uid)
 	}
