@@ -7,55 +7,45 @@ import (
 
 type SetCallback func(key interface{}, insert time.Time)
 
-// TtlStore is a map store with callback on set. It adds `Delete` method
-// used by Deleter.
+// TtlStore is a map store with callback on Set. It wraps around the sync.Map.
+// It adds `Delete` method used by Deleter.
 type TtlStore struct {
-	m           *sync.RWMutex
-	store       map[interface{}]interface{}
+	sm          sync.Map
 	setCallback SetCallback
+
+	Now func() time.Time
 }
 
 func New(c SetCallback) *TtlStore {
 	return &TtlStore{
-		&sync.RWMutex{},
-		make(map[interface{}]interface{}),
+		sync.Map{},
 		c,
+		time.Now,
 	}
 }
 
 func (t *TtlStore) Has(key interface{}) bool {
-	t.m.RLock()
-	_, ok := t.store[key]
-	t.m.RUnlock()
+	_, ok := t.sm.Load(key)
 	return ok
 }
 
 func (t *TtlStore) GetHas(key interface{}) (interface{}, bool) {
-	t.m.RLock()
-	v, ok := t.store[key]
-	t.m.RUnlock()
+	v, ok := t.sm.Load(key)
 	return v, ok
 }
 
 func (t *TtlStore) Get(key interface{}) interface{} {
-	t.m.RLock()
-	defer t.m.RUnlock()
-	return t.store[key]
+	v, _ := t.sm.Load(key)
+	return v
 }
 
 func (t *TtlStore) Set(key, value interface{}) {
-	t.m.Lock()
-	t.store[key] = value
-	t.m.Unlock()
+	t.sm.Store(key, value)
 	if t.setCallback != nil {
-		t.setCallback(key, time.Now())
+		t.setCallback(key, t.Now())
 	}
 }
 
 func (t *TtlStore) Delete(key interface{}) {
-	t.m.Lock()
-	// NOTICE: we ignore the callback. It means, if a Delete is used
-	// by developer, the deleter must be notified in separate.
-	delete(t.store, key)
-	t.m.Unlock()
+	t.sm.Delete(key)
 }

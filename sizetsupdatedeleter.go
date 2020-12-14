@@ -1,8 +1,8 @@
 package ttlstore
 
 import (
-	"github.com/sirupsen/logrus"
 	"github.com/orian/utils/ptime"
+	"github.com/sirupsen/logrus"
 
 	"container/heap"
 	"io/ioutil"
@@ -18,9 +18,11 @@ type itemTimestamp struct {
 type itemTimestmapHeap []*itemTimestamp
 
 func (h itemTimestmapHeap) Len() int { return len(h) }
+
 func (h itemTimestmapHeap) Less(i, j int) bool {
 	return h[i].TimestmapNsec > h[j].TimestmapNsec
 }
+
 func (h itemTimestmapHeap) Swap(i, j int) { h[i], h[j] = h[j], h[i] }
 
 func (h *itemTimestmapHeap) Push(x interface{}) {
@@ -51,6 +53,7 @@ type Deleter struct {
 	DeleteFunc DeleteHook
 	Interval   time.Duration
 	Name       string
+	Now        func() time.Time
 
 	lastItemTimeNsec map[interface{}]int64
 	maxAge           time.Duration
@@ -62,8 +65,8 @@ type Deleter struct {
 	logger   logrus.FieldLogger
 }
 
-func NewDeleter(name string, del DeleteHook, maxAge, runInterval time.Duration, bufSize, keep int,
-	logger logrus.FieldLogger) *Deleter {
+func NewDeleter(name string, del DeleteHook, maxAge, runInterval time.Duration,
+	bufSize, keep int, logger logrus.FieldLogger) *Deleter {
 
 	if logger == nil {
 		l := logrus.New()
@@ -76,6 +79,7 @@ func NewDeleter(name string, del DeleteHook, maxAge, runInterval time.Duration, 
 		del,
 		runInterval,
 		name,
+		time.Now,
 		make(map[interface{}]int64),
 		maxAge,
 		keep,
@@ -101,7 +105,7 @@ func NewDeleterProvider(maxAge, interval time.Duration, bufSize, keep int) Delet
 
 func (d *Deleter) deleteTooOld() {
 	num := 0
-	thresholdUsec := time.Now().Add(-d.maxAge).UnixNano()
+	thresholdUsec := d.Now().Add(-d.maxAge).UnixNano()
 	t := ptime.NewTimer()
 	d.m.Lock()
 	defer d.m.Unlock()
@@ -157,7 +161,7 @@ func (d *Deleter) Process() {
 	d.logger.Infof("[%s] process started", d.Name)
 	for t := range d.c {
 		d.m.Lock()
-		if v := d.lastItemTimeNsec[t.Key]; v < t.TimestmapNsec {
+		if v, ok := d.lastItemTimeNsec[t.Key]; !ok || v < t.TimestmapNsec {
 			d.lastItemTimeNsec[t.Key] = t.TimestmapNsec
 		}
 		d.m.Unlock()

@@ -5,54 +5,75 @@ import (
 	"fmt"
 	"testing"
 	"time"
+
+	"github.com/stretchr/testify/require"
 )
 
 var _ SetCallback = (&Deleter{}).Set
 
 func TestNewDeleter(t *testing.T) {
-	ex := []*itemTimestamp{
-		{"1", 10},
-		{"2", 20},
-		{"3", 15},
-		{"4", 25},
-		{"5", 5},
-		{"6", 17},
-		{"7", 14},
-		{"8", time.Now().UnixNano()},
+	items := []struct {
+		key       interface{}
+		ts        int64
+		delAsSize bool
+		delAsTime bool
+	}{
+		{"1", 10, true, true},
+		{"2", 20, false, true},
+		{"3", 15, true, true},
+		{"4", 25, false, true},
+		{"5", 5, true, true},
+		{"6", 17, true, true},
+		{"7", 14, true, true},
+		{"8", 10000, false, false},
 	}
+
 	deleted := make(map[interface{}]bool)
 	cnt := 0
 	var dh DeleteHook = func(key interface{}) {
 		deleted[key] = true
 		cnt++
 	}
-	d := NewDeleter("", dh, time.Minute, time.Hour, 3, 3, nil)
+	d := NewDeleter("", dh, 10, 100000, 3, 3, nil)
+	d.Now = func() time.Time {
+		return time.Unix(0, 10000-1)
+	}
 	go d.Process()
-	for _, v := range ex {
-		d.c <- v
+	for _, v := range items {
+		d.c <- &itemTimestamp{
+			Key:           v.key,
+			TimestmapNsec: v.ts,
+		}
 	}
 	close(d.c)
 	<-d.finished
-	if l := len(d.lastItemTimeNsec); l != 8 {
-		t.Errorf("want: 8, got: %d", l)
+	require.Len(t, d.lastItemTimeNsec, 8, "want: 8, got: %d", len(d.lastItemTimeNsec))
+	for _, v := range items {
+		require.Equal(t, v.ts, d.lastItemTimeNsec[v.key])
 	}
 	d.deleteUntilBelowKeepNum()
 
 	if cnt != 5 {
 		t.Errorf("deleted, want: 5, got: %d", cnt)
-		t.Errorf("%v", deleted)
+		t.Fatalf("%v", deleted)
 	}
 	if l := len(d.lastItemTimeNsec); l != 3 {
-		t.Errorf("want: 3, got: %d", l)
+		t.Fatalf("want: 3, got: %d", l)
+	}
+	for _, v := range items {
+		require.Equal(t, v.delAsSize, deleted[v.key])
 	}
 
 	d.deleteTooOld()
 	if cnt != 7 {
 		t.Errorf("deleted, want: 7, got: %d", cnt)
-		t.Errorf("%v", deleted)
+		t.Fatalf("%v", deleted)
 	}
 	if l := len(d.lastItemTimeNsec); l != 1 {
-		t.Errorf("want: 1, got: %d", l)
+		t.Fatalf("want: 1, got: %d", l)
+	}
+	for _, v := range items {
+		require.Equal(t, v.delAsTime, deleted[v.key])
 	}
 }
 
@@ -72,7 +93,7 @@ func TestFullDeleter(t *testing.T) {
 	for _, v := range ex {
 		d.c <- v
 	}
-	<-time.NewTimer(time.Second * 3).C
+	time.Sleep(3 * time.Second)
 
 	defer d.Stop()
 	d.m.Lock()
@@ -82,22 +103,21 @@ func TestFullDeleter(t *testing.T) {
 	}
 }
 
-func benchForUsers(n, a, x, y int, b *testing.B) {
-	ids := [][]byte{}
-	for i := 0; i < n; i++ {
-		ids = append(ids, []byte(fmt.Sprint(i)))
+func benchForUsers(bufSize, keepNum int, b *testing.B) {
+	ids := make([]string, 0, b.N)
+	for i := 0; i < b.N; i++ {
+		ids = append(ids, fmt.Sprint(i))
 	}
 
+	d := NewDeleter("", nil, time.Minute, 5*time.Second, bufSize, keepNum, nil)
+	go d.Start()
+
+	b.StartTimer()
 	for i := 0; i < b.N; i++ {
-		d := NewDeleter("", nil, time.Minute, 5*time.Second, x, y, nil)
-		go d.Start()
-		for _, id := range ids {
-			for j := 0; j < a; j++ {
-				d.c <- &itemTimestamp{id, time.Now().UnixNano()}
-			}
-		}
-		d.Stop()
+		d.Set(ids[i], time.Now())
 	}
+	b.StopTimer()
+	d.Stop()
 	b.Logf("added %d", len(ids)*b.N)
 }
 
@@ -122,6 +142,4 @@ func TestActionTimestmapHeap(t *testing.T) {
 }
 
 // TODO think about better performance test
-func BenchmarkDel70000(b *testing.B) { benchForUsers(70000, 10, 1000, 50000, b) }
-
-func BenchmarkDel70000x100(b *testing.B) { benchForUsers(70000, 100, 1000, 50000, b) }
+func BenchmarkDel(b *testing.B) { benchForUsers(1000, 50000, b) }
